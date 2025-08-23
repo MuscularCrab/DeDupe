@@ -11,7 +11,6 @@ a = Analysis(
         'cv2',
         'numpy',
         'PIL',
-        'PIL._tkinter_finder',
         'tkinter',
         'tkinter.ttk',
         'tkinter.filedialog',
