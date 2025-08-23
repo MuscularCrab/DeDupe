@@ -298,6 +298,10 @@ class DeDupeApp:
                         h = min(h, frame.shape[0] - y)
                         
                         if w > 0 and h > 0:
+                            # Debug: Print the region being processed
+                            if frame_idx == 0:  # Only print for first frame to avoid spam
+                                print(f"Processing selective area: x={x}, y={y}, w={w}, h={h}")
+                                print(f"Frame shape: {frame.shape}")
                             frame = frame[y:y+h, x:x+w]
                         else:
                             continue  # Skip invalid region
@@ -308,8 +312,23 @@ class DeDupeApp:
                     if frame_hash not in frame_hashes:
                         frame_hashes.add(frame_hash)
                         
+                        # Generate unique filename to avoid overwriting existing files
+                        base_filename = f"frame_{saved_frames:06d}.jpg"
+                        frame_filename = output_dir / base_filename
+                        
+                        # If file exists, create a unique name with counter
+                        counter = 1
+                        original_filename = frame_filename
+                        while frame_filename.exists():
+                            name_without_ext = base_filename[:-4]  # Remove .jpg
+                            frame_filename = output_dir / f"{name_without_ext}_{counter:03d}.jpg"
+                            counter += 1
+                        
+                        # Log if filename was changed to avoid conflict
+                        if frame_filename != original_filename:
+                            print(f"File renamed to avoid conflict: {frame_filename.name}")
+                        
                         # Save frame
-                        frame_filename = output_dir / f"frame_{saved_frames:06d}.jpg"
                         cv2.imwrite(str(frame_filename), frame)
                         saved_frames += 1
                     
@@ -327,7 +346,7 @@ class DeDupeApp:
             
             if self.is_processing:
                 self.root.after(0, lambda: self.progress_label.config(text=f"Completed! Saved {saved_frames} frames, removed {processed_frames - saved_frames} duplicates"))
-                messagebox.showinfo("Success", f"Processing completed!\n\nSaved frames: {saved_frames}\nDuplicates removed: {processed_frames - saved_frames}\nOutput directory: {output_dir}")
+                messagebox.showinfo("Success", f"Processing completed!\n\nSaved frames: {saved_frames}\nDuplicates removed: {processed_frames - saved_frames}\nOutput directory: {output_dir}\n\nNote: If files with the same names already existed, they were renamed with _001, _002, etc. suffixes to avoid overwriting.")
             else:
                 self.root.after(0, lambda: self.progress_label.config(text="Processing stopped by user"))
                 
@@ -464,7 +483,8 @@ class AreaSelectionWindow:
                     
                     # Store original frame dimensions for coordinate conversion
                     self.original_frame = frame
-                    self.display_frame = pil_image
+                    self.original_width = frame.shape[1]
+                    self.original_height = frame.shape[0]
                     
                     # Get original dimensions
                     orig_width, orig_height = pil_image.size
@@ -481,6 +501,11 @@ class AreaSelectionWindow:
                     # Calculate display dimensions
                     display_width = int(orig_width * scale)
                     display_height = int(orig_height * scale)
+                    
+                    # Store display dimensions for coordinate conversion
+                    self.display_width = display_width
+                    self.display_height = display_height
+                    self.scale_factor = scale
                     
                     # Resize for display if needed
                     if scale < 1.0:
@@ -549,12 +574,12 @@ class AreaSelectionWindow:
             x2, y2 = max(self.start_x, end_x), max(self.start_y, end_y)
             
             # Convert display coordinates to original frame coordinates
-            if hasattr(self, 'original_frame') and hasattr(self, 'display_frame'):
-                # Calculate scale factors (handle case where display = original size)
-                orig_width = self.original_frame.shape[1]
-                orig_height = self.original_frame.shape[0]
-                display_width = self.display_frame.width
-                display_height = self.display_frame.height
+            if hasattr(self, 'original_width') and hasattr(self, 'display_width'):
+                # Use stored dimensions for accurate coordinate conversion
+                orig_width = self.original_width
+                orig_height = self.original_height
+                display_width = self.display_width
+                display_height = self.display_height
                 
                 # Calculate scale factors
                 scale_x = orig_width / display_width
@@ -566,13 +591,20 @@ class AreaSelectionWindow:
                 sel_width = int((x2 - x1) * scale_x)
                 sel_height = int((y2 - y1) * scale_y)
                 
+                # Ensure coordinates are within bounds
+                orig_x = max(0, min(orig_x, orig_width - 1))
+                orig_y = max(0, min(orig_y, orig_height - 1))
+                sel_width = min(sel_width, orig_width - orig_x)
+                sel_height = min(sel_height, orig_height - orig_y)
+                
                 # Store selected region
                 self.selected_region = (orig_x, orig_y, sel_width, sel_height)
                 
-                # Update info display
-                self.selection_info.config(
-                    text=f"Selected: X={orig_x}, Y={orig_y}, Width={sel_width}, Height={sel_height}"
-                )
+                # Update info display with debug info
+                debug_info = f"Selected: X={orig_x}, Y={orig_y}, Width={sel_width}, Height={sel_height}\n"
+                debug_info += f"Display coords: ({int(x1)}, {int(y1)}) to ({int(x2)}, {int(y2)})\n"
+                debug_info += f"Scale factors: X={scale_x:.3f}, Y={scale_y:.3f}"
+                self.selection_info.config(text=debug_info)
             
             self.start_x = None
             self.start_y = None
